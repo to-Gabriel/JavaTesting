@@ -106,7 +106,17 @@ public class BoardPanel extends JPanel {
 	 * The tiles that make up the board.
 	 */
 	private TileType[][] tiles;
-		
+
+	/**
+	 * Helper function that places a tile. Useful for testing.
+	 * @param x
+	 * @param y
+	 * @param t
+	 */
+	void setTileForTest(int x, int y, TileType t) {
+		setTile(x, y, t);
+	}
+
 	/**
 	 * Crates a new GameBoard instance.
 	 * @param tetris The Tetris instance to use.
@@ -433,5 +443,4 @@ public class BoardPanel extends JPanel {
 			g.drawLine(x + i, y, x + i, y + TILE_SIZE - i - 1);
 		}
 	}
-
 }
