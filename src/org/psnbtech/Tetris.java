@@ -448,7 +448,7 @@ public class Tetris extends JFrame {
 		 * If the current piece is too far to the left or right, move the piece away from the edges
 		 * so that the piece doesn't clip out of the map and automatically become invalid.
 		 */
-		if(currentCol < -left) {
+		if(currentCol <= -left) {
 			newColumn -= currentCol - left;
 		} else if(currentCol + currentType.getDimension() - right >= BoardPanel.COL_COUNT) {
 			newColumn -= (currentCol + currentType.getDimension() - right) - BoardPanel.COL_COUNT + 1;
