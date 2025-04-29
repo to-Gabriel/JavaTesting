@@ -24,6 +24,10 @@ public class TetrisTest {
     @Mock
     private Clock logicTimer;
 
+    @Mock
+    private SidePanel side;
+
+
     private Method updateGameMethod;
 
     @BeforeEach
@@ -34,6 +38,8 @@ public class TetrisTest {
         // Inject mocks into private fields
         setPrivateField(tetris, "board", board);
         setPrivateField(tetris, "logicTimer", logicTimer);
+        setPrivateField(tetris, "side", side);
+
 
         // Initialize other necessary fields
         setPrivateField(tetris, "random", new Random());
@@ -126,6 +132,64 @@ public class TetrisTest {
 
         int level = (int) getPrivateField(tetris, "level");
         assertEquals((int) (newSpeed * 1.70f), level);
+    }
+    /*-----------------------------------------------*/
+
+    /*----------renderGame() Tests--------------*/
+    @Test
+    void testRenderGameWhenPaused() throws Exception {
+        /**
+         * Test that renderGame() repaints correctly when the game is paused.
+         */
+        setPrivateField(tetris, "isPaused", true);
+
+        tetris.renderGame(); // package private so it can be used in test
+
+        verify(board).repaint();
+        verify(side).repaint();
+    }
+
+    @Test
+    void testRenderGameWhenNewGame() throws Exception {
+        /**
+         * Test that renderGame() repaints correctly when the game is starting (new game).
+         */
+        setPrivateField(tetris, "isNewGame", true);
+        setPrivateField(tetris, "isPaused", false);
+
+        tetris.renderGame();
+
+        verify(board).repaint();
+        verify(side).repaint();
+    }
+
+    @Test
+    void testRenderGameWhenGameOver() throws Exception {
+        /**
+         * Test that renderGame() repaints correctly when the game is over.
+         */
+        setPrivateField(tetris, "isGameOver", true);
+        setPrivateField(tetris, "isPaused", false);
+
+        tetris.renderGame();
+
+        verify(board).repaint();
+        verify(side).repaint();
+    }
+
+    @Test
+    void testRenderGameDuringActivePlay() throws Exception {
+        /**
+         * Test that renderGame() repaints correctly when the game is actively being played.
+         */
+        setPrivateField(tetris, "isPaused", false);
+        setPrivateField(tetris, "isNewGame", false);
+        setPrivateField(tetris, "isGameOver", false);
+
+        tetris.renderGame();
+
+        verify(board).repaint();
+        verify(side).repaint();
     }
     /*-----------------------------------------------*/
 
@@ -226,6 +290,112 @@ public class TetrisTest {
         assertEquals(0, getPrivateField(tetris, "currentRotation")); // Rotation should remain unchanged
         assertEquals(5, getPrivateField(tetris, "currentCol"));
         assertEquals(10, getPrivateField(tetris, "currentRow"));
+    }
+    /*-----------------------------------------------*/
+
+    /*---------- spawnPiece() Tests--------------*/
+    @Test
+    void testSpawnPieceValidPosition() throws Exception {
+        /**
+         * Tests spawnPiece() when the new piece spawns in a valid position.
+         * Covers the branch where the board allows the spawn, so the game continues normally.
+         */
+        TileType type = TileType.TypeO;
+
+        setPrivateField(tetris, "nextType", type);
+        when(board.isValidAndEmpty(eq(type), eq(type.getSpawnColumn()), eq(type.getSpawnRow()), eq(0)))
+                .thenReturn(true);
+
+        Method spawnPiece = Tetris.class.getDeclaredMethod("spawnPiece");
+        spawnPiece.setAccessible(true);
+        spawnPiece.invoke(tetris);
+
+        // Confirm piece was spawned correctly
+        assertEquals(type, getPrivateField(tetris, "currentType"));
+        assertEquals(0, getPrivateField(tetris, "currentRotation"));
+        assertEquals(type.getSpawnColumn(), getPrivateField(tetris, "currentCol"));
+        assertEquals(type.getSpawnRow(), getPrivateField(tetris, "currentRow"));
+
+        // Game should not be over
+        assertFalse((boolean) getPrivateField(tetris, "isGameOver"));
+        verify(logicTimer, never()).setPaused(true);
+    }
+
+    @Test
+    void testSpawnPieceInvalidPosition() throws Exception {
+        /**
+         * Tests spawnPiece() when the new piece cannot be placed on the board.
+         * Covers the branch where isValidAndEmpty is false, triggering a game over and pausing the game.
+         */
+        TileType type = TileType.TypeT;
+
+        setPrivateField(tetris, "nextType", type);
+        when(board.isValidAndEmpty(eq(type), eq(type.getSpawnColumn()), eq(type.getSpawnRow()), eq(0)))
+                .thenReturn(false);
+
+        Method spawnPiece = Tetris.class.getDeclaredMethod("spawnPiece");
+        spawnPiece.setAccessible(true);
+        spawnPiece.invoke(tetris);
+
+        // Game should now be over
+        assertTrue((boolean) getPrivateField(tetris, "isGameOver"));
+        verify(logicTimer).setPaused(true);
+    }
+    /*-----------------------------------------------*/
+
+    /*---------- resetGame() Tests--------------*/
+    @Test
+    void testResetGameWithValidSpawn() throws Exception {
+        /**
+         * Ensures resetGame sets the correct fields and spawns a piece when valid.
+         * Covers the full reset path including a successful spawn.
+         */
+        int chosenIndex = 3; // TypeL
+        TileType next = TileType.values()[chosenIndex];
+
+        Random fakeRandom = mock(Random.class);
+        when(fakeRandom.nextInt(anyInt())).thenReturn(chosenIndex);
+
+        setPrivateField(tetris, "random", fakeRandom);
+        when(board.isValidAndEmpty(eq(next), eq(next.getSpawnColumn()), eq(next.getSpawnRow()), eq(0)))
+                .thenReturn(true);
+
+        Method resetGame = Tetris.class.getDeclaredMethod("resetGame");
+        resetGame.setAccessible(true);
+        resetGame.invoke(tetris);
+
+        assertEquals(1, getPrivateField(tetris, "level"));
+        assertEquals(0, getPrivateField(tetris, "score"));
+        assertEquals(1.0f, getPrivateField(tetris, "gameSpeed"));
+        assertFalse((boolean) getPrivateField(tetris, "isNewGame"));
+        assertFalse((boolean) getPrivateField(tetris, "isGameOver"));
+        assertEquals(next, getPrivateField(tetris, "nextType"));
+
+        verify(board).clear();
+        verify(logicTimer).reset();
+        verify(logicTimer).setCyclesPerSecond(1.0f);
+    }
+
+    @Test
+    void testResetGameWithInvalidSpawn() throws Exception {
+        /**
+         * Tests resetGame where the spawned piece is invalid.
+         * This ensures isGameOver is set and logicTimer is paused.
+         */
+        TileType next = TileType.TypeT;
+
+        setPrivateField(tetris, "random", new Random(0));
+        setPrivateField(tetris, "nextType", next);
+
+        when(board.isValidAndEmpty(eq(next), eq(next.getSpawnColumn()), eq(next.getSpawnRow()), eq(0)))
+                .thenReturn(false); // Trigger game over
+
+        Method resetGame = Tetris.class.getDeclaredMethod("resetGame");
+        resetGame.setAccessible(true);
+        resetGame.invoke(tetris);
+
+        assertTrue((boolean) getPrivateField(tetris, "isGameOver"));
+        verify(logicTimer).setPaused(true); // Game over branch is hit
     }
     /*-----------------------------------------------*/
 

@@ -375,7 +375,7 @@ public class Tetris extends JFrame {
 	/**
 	 * Forces the BoardPanel and SidePanel to repaint.
 	 */
-	private void renderGame() {
+    void renderGame() {
 		board.repaint();
 		side.repaint();
 	}
