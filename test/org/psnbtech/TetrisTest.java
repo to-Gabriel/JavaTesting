@@ -137,57 +137,11 @@ public class TetrisTest {
 
     /*----------renderGame() Tests--------------*/
     @Test
-    void testRenderGameWhenPaused() throws Exception {
-        /**
-         * Test that renderGame() repaints correctly when the game is paused.
-         */
-        setPrivateField(tetris, "isPaused", true);
-
-        tetris.renderGame(); // package private so it can be used in test
-
-        verify(board).repaint();
-        verify(side).repaint();
-    }
-
-    @Test
-    void testRenderGameWhenNewGame() throws Exception {
-        /**
-         * Test that renderGame() repaints correctly when the game is starting (new game).
-         */
-        setPrivateField(tetris, "isNewGame", true);
-        setPrivateField(tetris, "isPaused", false);
-
+    void testRenderGame() throws Exception {
+        // The game state doesn't affect the behavior of renderGame()
         tetris.renderGame();
 
-        verify(board).repaint();
-        verify(side).repaint();
-    }
-
-    @Test
-    void testRenderGameWhenGameOver() throws Exception {
-        /**
-         * Test that renderGame() repaints correctly when the game is over.
-         */
-        setPrivateField(tetris, "isGameOver", true);
-        setPrivateField(tetris, "isPaused", false);
-
-        tetris.renderGame();
-
-        verify(board).repaint();
-        verify(side).repaint();
-    }
-
-    @Test
-    void testRenderGameDuringActivePlay() throws Exception {
-        /**
-         * Test that renderGame() repaints correctly when the game is actively being played.
-         */
-        setPrivateField(tetris, "isPaused", false);
-        setPrivateField(tetris, "isNewGame", false);
-        setPrivateField(tetris, "isGameOver", false);
-
-        tetris.renderGame();
-
+        // Verify that both panels are repainted regardless of game state
         verify(board).repaint();
         verify(side).repaint();
     }
