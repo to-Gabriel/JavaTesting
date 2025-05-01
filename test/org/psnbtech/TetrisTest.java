@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -245,6 +246,120 @@ public class TetrisTest {
         assertEquals(5, getPrivateField(tetris, "currentCol"));
         assertEquals(10, getPrivateField(tetris, "currentRow"));
     }
+
+    @Test
+    void testRotatePieceTopShift() throws Exception {
+        /**
+         * Tests vertical adjustment logic when the piece would extend past the top board edge.
+         * This activates the top inset shift logic.
+         * Important to validate wall kick functionality near top edge.
+         */
+        TileType type = TileType.TypeI;
+        int topInset = type.getTopInset(1);
+        int startRow = -4; // Place the piece beyond the top border
+        int expectedRow = -topInset; // Should adjust to this position
+
+        // Only stub the call that will be made after adjustment
+        when(board.isValidAndEmpty(eq(type), eq(5), eq(expectedRow), eq(1))).thenReturn(true);
+
+        setPrivateField(tetris, "currentRotation", 0);
+        setPrivateField(tetris, "currentCol", 5);
+        setPrivateField(tetris, "currentRow", startRow);
+        setPrivateField(tetris, "currentType", type);
+
+        Method rotatePiece = Tetris.class.getDeclaredMethod("rotatePiece", int.class);
+        rotatePiece.setAccessible(true);
+        rotatePiece.invoke(tetris, 1);
+
+        // Verify that position was adjusted properly
+        assertEquals(1, getPrivateField(tetris, "currentRotation"));
+        assertEquals(5, getPrivateField(tetris, "currentCol")); // Column unchanged
+        assertEquals(expectedRow, getPrivateField(tetris, "currentRow")); // Row shifted down
+
+        // Verify the board was checked with the adjusted position
+        verify(board).isValidAndEmpty(eq(type), eq(5), eq(expectedRow), eq(1));
+    }
+
+    @Test
+    void testRotatePieceBottomShift() throws Exception {
+        /**
+         * Tests vertical adjustment logic when the piece would extend past the bottom board edge.
+         * This activates the bottom inset shift logic.
+         * Important to validate wall kick functionality near bottom edge.
+         */
+        TileType type = TileType.TypeI;
+        int dimension = type.getDimension();
+        int bottomInset = type.getBottomInset(1);
+
+        // Calculate a starting row that puts the piece beyond the bottom boundary after rotation
+        int startRow = BoardPanel.ROW_COUNT - dimension + bottomInset + 2;
+        int expectedRow = BoardPanel.ROW_COUNT - dimension + bottomInset - 1;
+
+        // Only stub the call that will be made after adjustment
+        when(board.isValidAndEmpty(eq(type), eq(5), eq(expectedRow), eq(1))).thenReturn(true);
+
+        setPrivateField(tetris, "currentRotation", 0);
+        setPrivateField(tetris, "currentCol", 5);
+        setPrivateField(tetris, "currentRow", startRow);
+        setPrivateField(tetris, "currentType", type);
+
+        Method rotatePiece = Tetris.class.getDeclaredMethod("rotatePiece", int.class);
+        rotatePiece.setAccessible(true);
+        rotatePiece.invoke(tetris, 1);
+
+        // Verify that position was adjusted properly
+        assertEquals(1, getPrivateField(tetris, "currentRotation"));
+        assertEquals(5, getPrivateField(tetris, "currentCol")); // Column unchanged
+        assertEquals(expectedRow, getPrivateField(tetris, "currentRow")); // Row shifted up
+
+        // Verify the board was checked with the adjusted position
+        verify(board).isValidAndEmpty(eq(type), eq(5), eq(expectedRow), eq(1));
+    }
+
+    @Test
+    void testRotatePieceTopAndLeftShift() throws Exception {
+        /**
+         * Tests combined vertical and horizontal adjustment logic.
+         * This tests when the piece needs adjustment in both X and Y coordinates.
+         * Important to validate that both adjustments happen correctly together.
+         */
+        TileType type = TileType.TypeI;
+
+        // Place the piece beyond both left and top edges
+        int startCol = -2;
+        int startRow = -3;
+
+        // Instead of trying to pre-calculate exact adjustment values,
+        // we'll use lenient stubbing to allow any valid position
+        when(board.isValidAndEmpty(any(TileType.class), anyInt(), anyInt(), anyInt())).thenReturn(true);
+
+        setPrivateField(tetris, "currentRotation", 0);
+        setPrivateField(tetris, "currentCol", startCol);
+        setPrivateField(tetris, "currentRow", startRow);
+        setPrivateField(tetris, "currentType", type);
+
+        Method rotatePiece = Tetris.class.getDeclaredMethod("rotatePiece", int.class);
+        rotatePiece.setAccessible(true);
+        rotatePiece.invoke(tetris, 1);
+
+        // After rotation, verify positions changed from starting values
+        int newCol = (int) getPrivateField(tetris, "currentCol");
+        int newRow = (int) getPrivateField(tetris, "currentRow");
+        assertEquals(1, getPrivateField(tetris, "currentRotation"));
+
+        // The piece should have moved to valid coordinates
+        assertTrue(newCol > startCol, "Column should have been adjusted rightward");
+        assertTrue(newRow > startRow, "Row should have been adjusted downward");
+
+        // Capture the actual arguments passed to isValidAndEmpty
+        ArgumentCaptor<Integer> colCaptor = ArgumentCaptor.forClass(Integer.class);
+        ArgumentCaptor<Integer> rowCaptor = ArgumentCaptor.forClass(Integer.class);
+        verify(board).isValidAndEmpty(eq(type), colCaptor.capture(), rowCaptor.capture(), eq(1));
+
+        // Assert that the captured values match the new position
+        assertEquals(newCol, colCaptor.getValue().intValue());
+        assertEquals(newRow, rowCaptor.getValue().intValue());
+    }
     /*-----------------------------------------------*/
 
     /*---------- spawnPiece() Tests--------------*/
@@ -295,9 +410,7 @@ public class TetrisTest {
         assertTrue((boolean) getPrivateField(tetris, "isGameOver"));
         verify(logicTimer).setPaused(true);
     }
-    /*-----------------------------------------------*/
 
-    /*---------- resetGame() Tests--------------*/
     @Test
     void testResetGameWithValidSpawn() throws Exception {
         /**
