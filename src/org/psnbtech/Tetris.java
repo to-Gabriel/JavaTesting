@@ -117,7 +117,6 @@ public class Tetris extends JFrame {
 	 * Creates a new Tetris instance. Sets up the window's properties,
 	 * and adds a controller listener.
 	 */
-	// Made package-private so Tetris object can be used in Tests
     Tetris() {
 		/*
 		 * Set the basic properties of the window.
