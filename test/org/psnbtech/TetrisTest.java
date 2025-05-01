@@ -10,6 +10,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Random;
@@ -30,6 +32,10 @@ public class TetrisTest {
 
 
     private Method updateGameMethod;
+    private Method rotatePieceMethod; // For calling rotatePiece
+    private Method resetGameMethod;   // For calling resetGame
+
+    private KeyAdapter keyAdapter;    // To store the KeyAdapter instance
 
     @BeforeEach
     void setUp() throws Exception {
@@ -53,10 +59,40 @@ public class TetrisTest {
         setPrivateField(tetris, "level", 1);
         setPrivateField(tetris, "score", 0);
         setPrivateField(tetris, "nextType", TileType.TypeO);
+        setPrivateField(tetris, "isPaused", false);
+        setPrivateField(tetris, "isGameOver", false);
+        setPrivateField(tetris, "isNewGame", false); // Assume game is ongoing unless specified
 
-        // Access private updateGame method
+        // Access private methods needed for testing key adapter logic effects
         updateGameMethod = Tetris.class.getDeclaredMethod("updateGame");
         updateGameMethod.setAccessible(true);
+
+        rotatePieceMethod = Tetris.class.getDeclaredMethod("rotatePiece", int.class);
+        rotatePieceMethod.setAccessible(true);
+
+        resetGameMethod = Tetris.class.getDeclaredMethod("resetGame");
+        resetGameMethod.setAccessible(true);
+
+        // Get the KeyAdapter instance using reflection
+        // Tetris adds it directly, so it should be the first KeyListener
+        if (tetris.getKeyListeners().length > 0 && tetris.getKeyListeners()[0] instanceof KeyAdapter) {
+            keyAdapter = (KeyAdapter) tetris.getKeyListeners()[0];
+        } else {
+            fail("Could not find KeyAdapter in Tetris instance");
+        }
+
+        // Reset interactions on mocks before each test
+        reset(board, logicTimer, side);
+    }
+
+    // Helper to create a dummy KeyEvent
+    private KeyEvent createKeyEvent(int keyCode, char keyChar) {
+        // Using the Tetris frame itself as the source component
+        return new KeyEvent(tetris, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, keyCode, keyChar);
+    }
+    private KeyEvent createKeyReleaseEvent(int keyCode, char keyChar) {
+        // Using the Tetris frame itself as the source component
+        return new KeyEvent(tetris, KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, keyCode, keyChar);
     }
 
     /*----------updateGame() Tests--------------*/
@@ -495,6 +531,399 @@ public class TetrisTest {
         assertEquals(2, tetris.getPieceRotation(), "Piece rotation should be 2");
     }
     /*-----------------------------------------------*/
+
+    /*---------- KeyAdapter Tests --------------*/
+
+    @Test
+    void testKeyPressed_S_Drop_StartsFastDrop() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        setPrivateField(tetris, "dropCooldown", 0);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_S, 's');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        verify(logicTimer).setCyclesPerSecond(25.0f);
+    }
+
+    @Test
+    void testKeyPressed_S_Drop_DoesNothingWhenPaused() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", true);
+        setPrivateField(tetris, "dropCooldown", 0);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_S, 's');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        verify(logicTimer, never()).setCyclesPerSecond(anyFloat());
+    }
+
+    @Test
+    void testKeyPressed_S_Drop_DoesNothingDuringCooldown() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        setPrivateField(tetris, "dropCooldown", 5); // Cooldown active
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_S, 's');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        verify(logicTimer, never()).setCyclesPerSecond(anyFloat());
+    }
+
+    @Test
+    void testKeyReleased_S_Drop_RestoresGameSpeed() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        float currentGameSpeed = 1.5f; // Example speed
+        setPrivateField(tetris, "gameSpeed", currentGameSpeed);
+        KeyEvent keyEvent = createKeyReleaseEvent(KeyEvent.VK_S, 's');
+
+
+        // Act
+        keyAdapter.keyReleased(keyEvent);
+
+        // Assert
+        verify(logicTimer).setCyclesPerSecond(currentGameSpeed);
+        verify(logicTimer).reset();
+    }
+
+    @Test
+    void testKeyPressed_A_MoveLeft_Valid() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        int startCol = 5;
+        setPrivateField(tetris, "currentCol", startCol);
+        when(board.isValidAndEmpty(any(TileType.class), eq(startCol - 1), anyInt(), anyInt())).thenReturn(true);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_A, 'a');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertEquals(startCol - 1, getPrivateField(tetris, "currentCol"));
+    }
+
+    @Test
+    void testKeyPressed_A_MoveLeft_Invalid() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        int startCol = 5;
+        setPrivateField(tetris, "currentCol", startCol);
+        when(board.isValidAndEmpty(any(TileType.class), eq(startCol - 1), anyInt(), anyInt())).thenReturn(false);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_A, 'a');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertEquals(startCol, getPrivateField(tetris, "currentCol")); // Position unchanged
+    }
+
+    @Test
+    void testKeyPressed_A_MoveLeft_Paused() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", true);
+        int startCol = 5;
+        setPrivateField(tetris, "currentCol", startCol);
+        // No need to mock board, it shouldn't be called
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_A, 'a');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertEquals(startCol, getPrivateField(tetris, "currentCol")); // Position unchanged
+        verify(board, never()).isValidAndEmpty(any(), anyInt(), anyInt(), anyInt());
+    }
+
+    @Test
+    void testKeyPressed_D_MoveRight_Valid() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        int startCol = 5;
+        setPrivateField(tetris, "currentCol", startCol);
+        when(board.isValidAndEmpty(any(TileType.class), eq(startCol + 1), anyInt(), anyInt())).thenReturn(true);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_D, 'd');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertEquals(startCol + 1, getPrivateField(tetris, "currentCol"));
+    }
+
+    @Test
+    void testKeyPressed_D_MoveRight_Invalid() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        int startCol = 5;
+        setPrivateField(tetris, "currentCol", startCol);
+        when(board.isValidAndEmpty(any(TileType.class), eq(startCol + 1), anyInt(), anyInt())).thenReturn(false);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_D, 'd');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertEquals(startCol, getPrivateField(tetris, "currentCol")); // Position unchanged
+    }
+
+    @Test
+    void testKeyPressed_D_MoveRight_Paused() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", true);
+        int startCol = 5;
+        setPrivateField(tetris, "currentCol", startCol);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_D, 'd');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertEquals(startCol, getPrivateField(tetris, "currentCol")); // Position unchanged
+        verify(board, never()).isValidAndEmpty(any(), anyInt(), anyInt(), anyInt());
+    }
+
+    @Test
+    void testKeyPressed_Q_RotateAntiClockwise_CallsRotatePiece() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        int currentRotation = 1;
+        int expectedNewRotation = 0; // 1 - 1 = 0
+        setPrivateField(tetris, "currentRotation", currentRotation);
+        // Assume rotation is valid for simplicity here, rotatePiece tests cover validity
+        when(board.isValidAndEmpty(any(TileType.class), anyInt(), anyInt(), eq(expectedNewRotation))).thenReturn(true);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_Q, 'q');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        // We verify the *effect* of the call to rotatePiece
+        assertEquals(expectedNewRotation, getPrivateField(tetris, "currentRotation"));
+        // Could potentially use a Spy to verify rotatePiece was called, but checking state effect is often sufficient.
+    }
+
+    @Test
+    void testKeyPressed_Q_RotateAntiClockwise_HandlesWrapAround() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        int currentRotation = 0;
+        int expectedNewRotation = 3; // Wraps around: (0 == 0) ? 3 : 0 - 1
+        setPrivateField(tetris, "currentRotation", currentRotation);
+        when(board.isValidAndEmpty(any(TileType.class), anyInt(), anyInt(), eq(expectedNewRotation))).thenReturn(true);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_Q, 'q');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertEquals(expectedNewRotation, getPrivateField(tetris, "currentRotation"));
+    }
+
+    @Test
+    void testKeyPressed_Q_RotateAntiClockwise_Paused() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", true);
+        int currentRotation = 1;
+        setPrivateField(tetris, "currentRotation", currentRotation);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_Q, 'q');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        // Rotation should not change because game is paused
+        assertEquals(currentRotation, getPrivateField(tetris, "currentRotation"));
+        // Ensure board check (part of rotatePiece) was not called
+        verify(board, never()).isValidAndEmpty(any(), anyInt(), anyInt(), anyInt());
+    }
+
+    @Test
+    void testKeyPressed_E_RotateClockwise_CallsRotatePiece() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        int currentRotation = 1;
+        int expectedNewRotation = 2; // 1 + 1 = 2
+        setPrivateField(tetris, "currentRotation", currentRotation);
+        when(board.isValidAndEmpty(any(TileType.class), anyInt(), anyInt(), eq(expectedNewRotation))).thenReturn(true);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_E, 'e');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertEquals(expectedNewRotation, getPrivateField(tetris, "currentRotation"));
+    }
+
+    @Test
+    void testKeyPressed_E_RotateClockwise_HandlesWrapAround() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        int currentRotation = 3;
+        int expectedNewRotation = 0; // Wraps around: (3 == 3) ? 0 : 3 + 1
+        setPrivateField(tetris, "currentRotation", currentRotation);
+        when(board.isValidAndEmpty(any(TileType.class), anyInt(), anyInt(), eq(expectedNewRotation))).thenReturn(true);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_E, 'e');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertEquals(expectedNewRotation, getPrivateField(tetris, "currentRotation"));
+    }
+
+    @Test
+    void testKeyPressed_E_RotateClockwise_Paused() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", true);
+        int currentRotation = 1;
+        setPrivateField(tetris, "currentRotation", currentRotation);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_E, 'e');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertEquals(currentRotation, getPrivateField(tetris, "currentRotation"));
+        verify(board, never()).isValidAndEmpty(any(), anyInt(), anyInt(), anyInt());
+    }
+
+    @Test
+    void testKeyPressed_P_Pause_TogglesPauseOn() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        setPrivateField(tetris, "isGameOver", false);
+        setPrivateField(tetris, "isNewGame", false);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_P, 'p');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertTrue((boolean) getPrivateField(tetris, "isPaused"));
+        verify(logicTimer).setPaused(true);
+    }
+
+    @Test
+    void testKeyPressed_P_Pause_TogglesPauseOff() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", true);
+        setPrivateField(tetris, "isGameOver", false);
+        setPrivateField(tetris, "isNewGame", false);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_P, 'p');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertFalse((boolean) getPrivateField(tetris, "isPaused"));
+        verify(logicTimer).setPaused(false);
+    }
+
+    @Test
+    void testKeyPressed_P_Pause_DoesNothingWhenGameOver() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        setPrivateField(tetris, "isGameOver", true); // Game is over
+        setPrivateField(tetris, "isNewGame", false);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_P, 'p');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertFalse((boolean) getPrivateField(tetris, "isPaused")); // State unchanged
+        verify(logicTimer, never()).setPaused(anyBoolean()); // Timer pause state not changed
+    }
+
+    @Test
+    void testKeyPressed_P_Pause_DoesNothingWhenNewGame() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isPaused", false);
+        setPrivateField(tetris, "isGameOver", false);
+        setPrivateField(tetris, "isNewGame", true); // New game state
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_P, 'p');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertFalse((boolean) getPrivateField(tetris, "isPaused")); // State unchanged
+        verify(logicTimer, never()).setPaused(anyBoolean()); // Timer pause state not changed
+    }
+
+    @Test
+    void testKeyPressed_Enter_StartsNewGameWhenGameOver() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isGameOver", true);
+        setPrivateField(tetris, "isNewGame", false);
+        // Mock necessary parts for resetGame to run without error
+        Random fakeRandom = mock(Random.class);
+        when(fakeRandom.nextInt(anyInt())).thenReturn(0); // Select first tile type
+        setPrivateField(tetris, "random", fakeRandom);
+        when(board.isValidAndEmpty(any(), anyInt(), anyInt(), anyInt())).thenReturn(true); // Allow spawn
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_ENTER, '\n');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        // Verify resetGame effects indirectly:
+        assertFalse((boolean) getPrivateField(tetris, "isGameOver")); // Should no longer be game over
+        assertFalse((boolean) getPrivateField(tetris, "isNewGame"));  // Should no longer be new game
+        assertEquals(1, getPrivateField(tetris, "level"));       // Level reset
+        assertEquals(0, getPrivateField(tetris, "score"));       // Score reset
+        verify(board).clear(); // Board cleared is a key part of resetGame
+    }
+
+    @Test
+    void testKeyPressed_Enter_StartsNewGameWhenNewGame() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isGameOver", false);
+        setPrivateField(tetris, "isNewGame", true); // Is new game state
+        // Mock necessary parts for resetGame
+        Random fakeRandom = mock(Random.class);
+        when(fakeRandom.nextInt(anyInt())).thenReturn(0);
+        setPrivateField(tetris, "random", fakeRandom);
+        when(board.isValidAndEmpty(any(), anyInt(), anyInt(), anyInt())).thenReturn(true);
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_ENTER, '\n');
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        assertFalse((boolean) getPrivateField(tetris, "isGameOver"));
+        assertFalse((boolean) getPrivateField(tetris, "isNewGame"));
+        assertEquals(1, getPrivateField(tetris, "level"));
+        assertEquals(0, getPrivateField(tetris, "score"));
+        verify(board).clear();
+    }
+
+    @Test
+    void testKeyPressed_Enter_DoesNothingDuringGame() throws Exception {
+        // Arrange
+        setPrivateField(tetris, "isGameOver", false);
+        setPrivateField(tetris, "isNewGame", false); // Game is active
+        KeyEvent keyEvent = createKeyEvent(KeyEvent.VK_ENTER, '\n');
+        int initialLevel = (int)getPrivateField(tetris, "level"); // Store pre-state
+
+        // Act
+        keyAdapter.keyPressed(keyEvent);
+
+        // Assert
+        // Verify no state changes associated with resetGame occurred
+        assertFalse((boolean) getPrivateField(tetris, "isGameOver"));
+        assertFalse((boolean) getPrivateField(tetris, "isNewGame"));
+        assertEquals(initialLevel, getPrivateField(tetris, "level")); // Level unchanged
+        verify(board, never()).clear(); // resetGame was not called
+    }
 
     // === Private Helpers ===
 
